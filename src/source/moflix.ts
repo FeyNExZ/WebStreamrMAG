@@ -1,5 +1,5 @@
-import { Context, ContentType, CountryCode, Id } from '../types';
-import { Source, SourceResult } from './Source';
+import { Context } from '../types';
+import { ContentType, CountryCode, Id, Source, SourceResult } from './Source';
 
 export class Moflix extends Source {
   readonly id = 'moflixstream';
@@ -7,7 +7,7 @@ export class Moflix extends Source {
   readonly name = 'MoflixStream';
   readonly baseUrl = 'https://moflix-stream.xyz';
   readonly contentTypes: ContentType[] = [ContentType.Movie, ContentType.Series];
-  readonly countryCodes: CountryCode[] = [CountryCode.DE];
+  readonly countryCodes: CountryCode[] = [CountryCode.de];
 
   async handleInternal(
     ctx: Context,
