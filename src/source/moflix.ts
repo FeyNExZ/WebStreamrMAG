@@ -28,7 +28,6 @@ export class Moflix extends Source {
       tmdbIdObj = await getTmdbId(ctx, this.fetcher, id);
       [name, year] = await getTmdbNameAndYear(ctx, this.fetcher, tmdbIdObj, 'de');
     } catch {
-      // Falls TMDB fehlschlägt, abbrechen
       return [];
     }
 
@@ -36,66 +35,81 @@ export class Moflix extends Source {
     const episode = tmdbIdObj?.episode;
     const tmdbId = tmdbIdObj?.id;
 
-    if (!tmdbId) return [];
-
-    // 1. Moflix URL aufbauen
-    let targetUrl = '';
-    if (!season) {
-      targetUrl = `${this.baseUrl}/movie/${tmdbId}`;
-    } else if (season && episode) {
-      targetUrl = `${this.baseUrl}/tv/${tmdbId}/${season}/${episode}`;
-    } else {
-      return [];
-    }
+    if (!name) return [];
 
     const results: SourceResult[] = [];
 
-    try {
-      const pageUrl = new URL(targetUrl);
-      const html = await this.fetcher.text(ctx, pageUrl);
-
-      const title = season
-        ? `${name} S${String(season).padStart(2, '0')}E${String(episode ?? 1).padStart(2, '0')}`
-        : `${name} (${year})`;
-
-      // 2. Player-Iframes herausfiltern
-      const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/g;
-      let match: RegExpExecArray | null;
-
-      while ((match = iframeRegex.exec(html)) !== null) {
-        let streamUrlStr = match[1];
-
-        if (!streamUrlStr) continue;
-
-        if (streamUrlStr.startsWith('//')) {
-          streamUrlStr = 'https:' + streamUrlStr;
-        }
-
-        let hostName = 'Hoster';
-        if (streamUrlStr.includes('voe') || streamUrlStr.includes('jodomi')) {
-          hostName = 'VOE';
-        } else if (streamUrlStr.includes('streamtape')) {
-          hostName = 'Streamtape';
-        } else if (streamUrlStr.includes('vidoza')) {
-          hostName = 'Vidoza';
-        }
-
-        try {
-          results.push({
-            url: new URL(streamUrlStr),
-            meta: {
-              countryCodes: [CountryCode.de],
-              referer: pageUrl.href,
-              title: `${hostName} - ${title}`,
-              sourceLabel: this.label,
-            },
-          });
-        } catch {
-          // Ungültige URL überspringen
-        }
+    // Suchpfad aufbauen (Versuch 1: TMDB-ID, Versuch 2: Titel-Suche)
+    const urlsToTry: string[] = [];
+    if (tmdbId) {
+      if (!season) {
+        urlsToTry.push(`${this.baseUrl}/movie/${tmdbId}`);
+      } else if (season && episode) {
+        urlsToTry.push(`${this.baseUrl}/tv/${tmdbId}/${season}/${episode}`);
       }
-    } catch (error) {
-      // Fehler beim Abruf abfangen
+    }
+    
+    // Fallback URL-Suche
+    const cleanQuery = encodeURIComponent(name);
+    urlsToTry.push(`${this.baseUrl}/search?q=${cleanQuery}`);
+
+    const title = season
+      ? `${name} S${String(season).padStart(2, '0')}E${String(episode ?? 1).padStart(2, '0')}`
+      : `${name} (${year})`;
+
+    for (const targetUrl of urlsToTry) {
+      try {
+        const pageUrl = new URL(targetUrl);
+        const html = await this.fetcher.text(ctx, pageUrl);
+
+        if (!html || html.length < 200) continue;
+
+        // Player-Iframes (VOE, Streamtape, Vidoza etc.) herausfiltern
+        const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/g;
+        let match: RegExpExecArray | null;
+
+        while ((match = iframeRegex.exec(html)) !== null) {
+          let streamUrlStr = match[1];
+
+          if (!streamUrlStr) continue;
+
+          if (streamUrlStr.startsWith('//')) {
+            streamUrlStr = 'https:' + streamUrlStr;
+          }
+
+          let hostName = 'Hoster';
+          if (streamUrlStr.includes('voe') || streamUrlStr.includes('jodomi')) {
+            hostName = 'VOE';
+          } else if (streamUrlStr.includes('streamtape')) {
+            hostName = 'Streamtape';
+          } else if (streamUrlStr.includes('vidoza')) {
+            hostName = 'Vidoza';
+          } else if (streamUrlStr.includes('dood')) {
+            hostName = 'Doodstream';
+          }
+
+          try {
+            results.push({
+              url: new URL(streamUrlStr),
+              meta: {
+                countryCodes: [CountryCode.de],
+                referer: pageUrl.href,
+                title: `${hostName} - ${title}`,
+                sourceLabel: this.label,
+              },
+            });
+          } catch {
+            // Ungültige URL überspringen
+          }
+        }
+
+        // Falls wir Ergebnisse auf dieser Seite gefunden haben, beenden wir die Schleife
+        if (results.length > 0) {
+          break;
+        }
+      } catch {
+        // Bei Fehler zur nächsten URL springen
+      }
     }
 
     return results;
