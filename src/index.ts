@@ -11,9 +11,8 @@ import { ConfigureController, ExtractController, ManifestController, StreamContr
 import { BlockedError, logErrorAndReturnNiceString } from './error';
 import { createExtractors, ExtractorRegistry } from './extractor';
 import { createSources, Source } from './source';
-import { HomeCine } from './source/HomeCine';
 import { MeineCloud } from './source/MeineCloud';
-import { MostraGuarda } from './source/MostraGuarda';
+import { Moflix } from './source/moflix';
 import { clearCache, contextFromRequestAndResponse, envGet, envIsProd, Fetcher, StreamResolver } from './utils';
 
 if (envIsProd()) {
@@ -124,13 +123,11 @@ addon.get('/live', async (req: Request, res: Response) => {
   const ctx = contextFromRequestAndResponse(req, res);
 
   const sources: Source[] = [
-    new HomeCine(fetcher),
+    new Moflix(fetcher),
     new MeineCloud(fetcher),
-    new MostraGuarda(fetcher),
   ];
   const hrefs = [
     ...sources.map(source => source.baseUrl),
-    'https://cloudnestra.com',
   ];
 
   const results = new Map<string, string>();
@@ -165,7 +162,6 @@ addon.get('/live', async (req: Request, res: Response) => {
   const details = Object.fromEntries(results);
 
   if (blockedCount > 0) {
-    // TODO: fail health check and try to get a clean IP if infra is ready
     logger.warn('IP might be not clean and leading to blocking.', ctx);
     res.json({ status: 'ok', details });
   } else if (errorCount === sources.length) {
