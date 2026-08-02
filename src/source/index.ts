@@ -6,6 +6,7 @@ import { MegaKino } from './MegaKino';
 import { MeineCloud } from './MeineCloud';
 import { Moflix } from './moflix';
 import { Source } from './Source';
+export * from './KinoKing';
 
 export * from './Source';
 
@@ -20,5 +21,6 @@ export const createSources = (fetcher: Fetcher): Source[] => {
     new MeineCloud(fetcher),
     new FilmpalastTO(fetcher),
     new Moflix(fetcher),
+    new KinoKing(fetcher),
   ].filter(source => !disabledSources.includes(source.id));
 };
