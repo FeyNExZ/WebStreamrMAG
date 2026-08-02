@@ -1,39 +1,57 @@
-import { Context, Fetcher, ParsedStream } from '../utils';
+import { ContentType } from '../types';
+import { Stream } from '../stream';
+import { Fetcher, RequestContext } from '../utils';
 import { Source } from './Source';
 
 export class Moflix extends Source {
-  id = 'moflixstream';
-  name = 'MoflixStream';
-  baseUrl = 'https://moflix-stream.xyz';
+  readonly id = 'moflixstream';
+  readonly label = 'MoflixStream';
+  readonly name = 'MoflixStream';
+  readonly baseUrl = 'https://moflix-stream.xyz';
+  readonly contentTypes: ContentType[] = [ContentType.Movie, ContentType.Series];
+  readonly countryCodes: string[] = ['DE'];
 
   constructor(fetcher: Fetcher) {
     super(fetcher);
   }
 
-  async getStreams(ctx: Context, tmdbId: string, type: string, season?: number, episode?: number): Promise<ParsedStream[]> {
-    const streams: ParsedStream[] = [];
+  async handleInternal(
+    ctx: RequestContext,
+    type: ContentType,
+    tmdbId: string,
+    season?: number,
+    episode?: number
+  ): Promise<Stream[]> {
+    const streams: Stream[] = [];
 
-    // Liest den TMDB Key sicher aus den Render-Umgebungsvariablen
-    const tmdbKey = process.env.TMDB_ACCESS_TOKEN || process.env.TMDB_API_KEY;
+    // Liest den TMDB Key aus den Umgebungsvariablen
+    const env = process.env as Record<string, string | undefined>;
+    const tmdbKey = env['TMDB_ACCESS_TOKEN'] || env['TMDB_API_KEY'];
 
     try {
       let germanTitle = '';
 
-      // 1. Deutschen Titel über TMDB abrufen (nur wenn Key vorhanden)
+      // 1. Deutschen Titel über TMDB abrufen (falls Key vorhanden)
       if (tmdbKey) {
-        const tmdbUrl = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${tmdbKey}&language=de-DE`;
-        const tmdbRes = await fetch(tmdbUrl);
-        if (tmdbRes.ok) {
-          const tmdbData = await tmdbRes.json();
-          germanTitle = tmdbData.title || tmdbData.name || '';
+        const typeStr = type === ContentType.Movie ? 'movie' : 'tv';
+        const tmdbUrl = `https://api.themoviedb.org/3/${typeStr}/${tmdbId}?api_key=${tmdbKey}&language=de-DE`;
+        
+        try {
+          const tmdbRes = await fetch(tmdbUrl);
+          if (tmdbRes.ok) {
+            const tmdbData: any = await tmdbRes.json();
+            germanTitle = tmdbData.title || tmdbData.name || '';
+          }
+        } catch {
+          // Falls TMDB fehlschlägt, machen wir trotzdem weiter
         }
       }
 
       // 2. Moflix URL aufbauen
       let targetUrl = '';
-      if (type === 'movie') {
+      if (type === ContentType.Movie) {
         targetUrl = `${this.baseUrl}/movie/${tmdbId}`;
-      } else if (type === 'series' && season && episode) {
+      } else if (type === ContentType.Series && season && episode) {
         targetUrl = `${this.baseUrl}/tv/${tmdbId}/${season}/${episode}`;
       } else {
         return [];
@@ -79,7 +97,7 @@ export class Moflix extends Source {
           name: `Moflix [DE] (${hosterName})`,
           title: displayTitle,
           url: streamUrl
-        } as ParsedStream);
+        } as Stream);
       }
 
     } catch (error) {
