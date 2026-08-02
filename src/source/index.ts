@@ -21,7 +21,7 @@ import { VerHdLink } from './VerHdLink';
 import { VidSrc } from './VidSrc';
 import { Vidzee } from './Vidzee';
 import { VixSrc } from './VixSrc';
-import { Moflix } from './Moflix';
+import { Moflix } from './moflix';
 
 export * from './Source';
 
