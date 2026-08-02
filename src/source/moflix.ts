@@ -1,104 +1,101 @@
-import { Context } from '../types';
-import { ContentType, CountryCode, Id, Source, SourceResult } from './Source';
+import { ContentType } from 'stremio-addon-sdk';
+import { Context, CountryCode } from '../types';
+import { Fetcher, getTmdbId, getTmdbNameAndYear, Id } from '../utils';
+import { Source, SourceResult } from './Source';
 
 export class Moflix extends Source {
-  readonly id = 'moflixstream';
-  readonly label = 'MoflixStream';
-  readonly name = 'MoflixStream';
-  readonly baseUrl = 'https://moflix-stream.xyz';
-  readonly contentTypes: ContentType[] = [ContentType.Movie, ContentType.Series];
-  readonly countryCodes: CountryCode[] = [CountryCode.de];
+  public readonly id = 'moflixstream';
+  public readonly label = 'MoflixStream';
+  public readonly baseUrl = 'https://moflix-stream.xyz';
 
-  async handleInternal(
-    ctx: Context,
-    type: ContentType,
-    id: Id
-  ): Promise<SourceResult[]> {
-    const results: SourceResult[] = [];
+  public override readonly contentTypes: ContentType[] = ['movie' as ContentType, 'series' as ContentType];
+  public override readonly countryCodes = [CountryCode.de];
+  public override readonly priority = 1;
 
-    const tmdbId = id.tmdb;
-    if (!tmdbId) return [];
+  private readonly fetcher: Fetcher;
 
-    // Liest den TMDB Key aus den Umgebungsvariablen
-    const env = process.env as Record<string, string | undefined>;
-    const tmdbKey = env['TMDB_ACCESS_TOKEN'] || env['TMDB_API_KEY'];
+  public constructor(fetcher: Fetcher) {
+    super();
+    this.fetcher = fetcher;
+  }
+
+  protected override async handleInternal(ctx: Context, _type: ContentType, id: Id): Promise<SourceResult[]> {
+    let name = '';
+    let year = 0;
+    let tmdbIdObj;
 
     try {
-      let germanTitle = '';
+      tmdbIdObj = await getTmdbId(ctx, this.fetcher, id);
+      [name, year] = await getTmdbNameAndYear(ctx, this.fetcher, tmdbIdObj, 'de');
+    } catch {
+      // Falls TMDB fehlschlägt, abbrechen
+      return [];
+    }
 
-      // 1. Deutschen Titel über TMDB abrufen (falls Key vorhanden)
-      if (tmdbKey) {
-        const typeStr = type === ContentType.Movie ? 'movie' : 'tv';
-        const tmdbUrl = `https://api.themoviedb.org/3/${typeStr}/${tmdbId}?api_key=${tmdbKey}&language=de-DE`;
+    const season = tmdbIdObj?.season;
+    const episode = tmdbIdObj?.episode;
+    const tmdbId = tmdbIdObj?.id;
 
-        try {
-          const tmdbRes = await fetch(tmdbUrl);
-          if (tmdbRes.ok) {
-            const tmdbData: any = await tmdbRes.json();
-            germanTitle = tmdbData.title || tmdbData.name || '';
-          }
-        } catch {
-          // Falls TMDB fehlschlägt, machen wir trotzdem weiter
-        }
-      }
+    if (!tmdbId) return [];
 
-      // 2. Moflix URL aufbauen
-      let targetUrl = '';
-      if (type === ContentType.Movie) {
-        targetUrl = `${this.baseUrl}/movie/${tmdbId}`;
-      } else if (type === ContentType.Series && id.season && id.episode) {
-        targetUrl = `${this.baseUrl}/tv/${tmdbId}/${id.season}/${id.episode}`;
-      } else {
-        return [];
-      }
+    // 1. Moflix URL aufbauen
+    let targetUrl = '';
+    if (!season) {
+      targetUrl = `${this.baseUrl}/movie/${tmdbId}`;
+    } else if (season && episode) {
+      targetUrl = `${this.baseUrl}/tv/${tmdbId}/${season}/${episode}`;
+    } else {
+      return [];
+    }
 
-      // 3. Moflix HTML-Seite abrufen
-      const response = await fetch(targetUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': this.baseUrl
-        }
-      });
+    const results: SourceResult[] = [];
 
-      if (!response.ok) return [];
+    try {
+      const pageUrl = new URL(targetUrl);
+      const html = await this.fetcher.text(ctx, pageUrl);
 
-      const html = await response.text();
+      const title = season
+        ? `${name} S${String(season).padStart(2, '0')}E${String(episode ?? 1).padStart(2, '0')}`
+        : `${name} (${year})`;
 
-      // 4. Player-Iframes (VOE, Streamtape etc.) herausfiltern
+      // 2. Player-Iframes herausfiltern
       const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/g;
       let match: RegExpExecArray | null;
 
       while ((match = iframeRegex.exec(html)) !== null) {
-        let streamUrl = match[1];
+        let streamUrlStr = match[1];
 
-        if (!streamUrl) continue;
+        if (!streamUrlStr) continue;
 
-        if (streamUrl.startsWith('//')) {
-          streamUrl = 'https:' + streamUrl;
+        if (streamUrlStr.startsWith('//')) {
+          streamUrlStr = 'https:' + streamUrlStr;
         }
 
-        let hosterName = 'Hoster';
-        if (streamUrl.includes('voe') || streamUrl.includes('jodomi')) {
-          hosterName = 'VOE';
-        } else if (streamUrl.includes('streamtape')) {
-          hosterName = 'Streamtape';
-        } else if (streamUrl.includes('vidoza')) {
-          hosterName = 'Vidoza';
+        let hostName = 'Hoster';
+        if (streamUrlStr.includes('voe') || streamUrlStr.includes('jodomi')) {
+          hostName = 'VOE';
+        } else if (streamUrlStr.includes('streamtape')) {
+          hostName = 'Streamtape';
+        } else if (streamUrlStr.includes('vidoza')) {
+          hostName = 'Vidoza';
         }
 
-        const displayTitle = germanTitle ? `${germanTitle} | 1080p Deutsch` : '1080p Deutsch';
-
-        results.push({
-          name: `Moflix [DE] (${hosterName})`,
-          title: displayTitle,
-          url: streamUrl
-        } as unknown as SourceResult);
+        try {
+          results.push({
+            url: new URL(streamUrlStr),
+            meta: {
+              countryCodes: [CountryCode.de],
+              referer: pageUrl.href,
+              title: `${hostName} - ${title}`,
+              sourceLabel: this.label,
+            },
+          });
+        } catch {
+          // Ungültige URL überspringen
+        }
       }
-
     } catch (error) {
-      if (ctx) {
-        console.error('[Moflix] Fehler:', error);
-      }
+      // Fehler beim Abruf abfangen
     }
 
     return results;
