@@ -1,7 +1,5 @@
-import { ContentType } from '../types';
-import { Stream } from '../stream';
-import { Fetcher, RequestContext } from '../utils';
-import { Source } from './Source';
+import { Context, ContentType, CountryCode, Id } from '../type';
+import { Source, SourceResult } from './Source';
 
 export class Moflix extends Source {
   readonly id = 'moflixstream';
@@ -9,20 +7,17 @@ export class Moflix extends Source {
   readonly name = 'MoflixStream';
   readonly baseUrl = 'https://moflix-stream.xyz';
   readonly contentTypes: ContentType[] = [ContentType.Movie, ContentType.Series];
-  readonly countryCodes: string[] = ['DE'];
-
-  constructor(fetcher: Fetcher) {
-    super(fetcher);
-  }
+  readonly countryCodes: CountryCode[] = [CountryCode.DE];
 
   async handleInternal(
-    ctx: RequestContext,
+    ctx: Context,
     type: ContentType,
-    tmdbId: string,
-    season?: number,
-    episode?: number
-  ): Promise<Stream[]> {
-    const streams: Stream[] = [];
+    id: Id
+  ): Promise<SourceResult[]> {
+    const results: SourceResult[] = [];
+
+    const tmdbId = id.tmdb;
+    if (!tmdbId) return [];
 
     // Liest den TMDB Key aus den Umgebungsvariablen
     const env = process.env as Record<string, string | undefined>;
@@ -35,7 +30,7 @@ export class Moflix extends Source {
       if (tmdbKey) {
         const typeStr = type === ContentType.Movie ? 'movie' : 'tv';
         const tmdbUrl = `https://api.themoviedb.org/3/${typeStr}/${tmdbId}?api_key=${tmdbKey}&language=de-DE`;
-        
+
         try {
           const tmdbRes = await fetch(tmdbUrl);
           if (tmdbRes.ok) {
@@ -51,8 +46,8 @@ export class Moflix extends Source {
       let targetUrl = '';
       if (type === ContentType.Movie) {
         targetUrl = `${this.baseUrl}/movie/${tmdbId}`;
-      } else if (type === ContentType.Series && season && episode) {
-        targetUrl = `${this.baseUrl}/tv/${tmdbId}/${season}/${episode}`;
+      } else if (type === ContentType.Series && id.season && id.episode) {
+        targetUrl = `${this.baseUrl}/tv/${tmdbId}/${id.season}/${id.episode}`;
       } else {
         return [];
       }
@@ -93,17 +88,19 @@ export class Moflix extends Source {
 
         const displayTitle = germanTitle ? `${germanTitle} | 1080p Deutsch` : '1080p Deutsch';
 
-        streams.push({
+        results.push({
           name: `Moflix [DE] (${hosterName})`,
           title: displayTitle,
           url: streamUrl
-        } as Stream);
+        } as SourceResult);
       }
 
     } catch (error) {
-      console.error('[Moflix] Fehler:', error);
+      if (ctx) {
+        console.error('[Moflix] Fehler:', error);
+      }
     }
 
-    return streams;
+    return results;
   }
 }
