@@ -1,4 +1,4 @@
-import { Context, ContentType, CountryCode, Id } from '../type';
+import { Context, ContentType, CountryCode, Id } from '../types';
 import { Source, SourceResult } from './Source';
 
 export class Moflix extends Source {
@@ -92,7 +92,7 @@ export class Moflix extends Source {
           name: `Moflix [DE] (${hosterName})`,
           title: displayTitle,
           url: streamUrl
-        } as SourceResult);
+        } as unknown as SourceResult);
       }
 
     } catch (error) {
