@@ -33,83 +33,73 @@ export class Moflix extends Source {
 
     const season = tmdbIdObj?.season;
     const episode = tmdbIdObj?.episode;
-    const tmdbId = tmdbIdObj?.id;
 
     if (!name) return [];
 
     const results: SourceResult[] = [];
 
-    // Suchpfad aufbauen (Versuch 1: TMDB-ID, Versuch 2: Titel-Suche)
-    const urlsToTry: string[] = [];
-    if (tmdbId) {
-      if (!season) {
-        urlsToTry.push(`${this.baseUrl}/movie/${tmdbId}`);
-      } else if (season && episode) {
-        urlsToTry.push(`${this.baseUrl}/tv/${tmdbId}/${season}/${episode}`);
-      }
-    }
-    
-    // Fallback URL-Suche
+    // Wir suchen primär über die Suchfunktion der Seite mit dem sauberen Filmnamen
     const cleanQuery = encodeURIComponent(name);
-    urlsToTry.push(`${this.baseUrl}/search?q=${cleanQuery}`);
+    const searchUrl = `${this.baseUrl}/search?q=${cleanQuery}`;
 
     const title = season
       ? `${name} S${String(season).padStart(2, '0')}E${String(episode ?? 1).padStart(2, '0')}`
       : `${name} (${year})`;
 
-    for (const targetUrl of urlsToTry) {
-      try {
-        const pageUrl = new URL(targetUrl);
-        const html = await this.fetcher.text(ctx, pageUrl);
+    try {
+      // User-Agent mitsenden, um Blocking zu verhindern
+      const html = await this.fetcher.text(ctx, new URL(searchUrl), {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': this.baseUrl,
+        },
+      });
 
-        if (!html || html.length < 200) continue;
+      if (!html || html.length < 100) return [];
 
-        // Player-Iframes (VOE, Streamtape, Vidoza etc.) herausfiltern
-        const iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/g;
-        let match: RegExpExecArray | null;
+      // Flexiblerer Regex: Sucht nach iframe src, data-src, data-link oder normalen Hoster-Links
+      const linkRegex = /(?:src|data-src|data-link|href)=["']([^"']*(?:voe|jodomi|streamtape|vidoza|dood|mixdrop|supervideo)[^"']*)["']/gi;
+      let match: RegExpExecArray | null;
 
-        while ((match = iframeRegex.exec(html)) !== null) {
-          let streamUrlStr = match[1];
+      while ((match = linkRegex.exec(html)) !== null) {
+        let streamUrlStr = match[1];
 
-          if (!streamUrlStr) continue;
+        if (!streamUrlStr) continue;
 
-          if (streamUrlStr.startsWith('//')) {
-            streamUrlStr = 'https:' + streamUrlStr;
-          }
-
-          let hostName = 'Hoster';
-          if (streamUrlStr.includes('voe') || streamUrlStr.includes('jodomi')) {
-            hostName = 'VOE';
-          } else if (streamUrlStr.includes('streamtape')) {
-            hostName = 'Streamtape';
-          } else if (streamUrlStr.includes('vidoza')) {
-            hostName = 'Vidoza';
-          } else if (streamUrlStr.includes('dood')) {
-            hostName = 'Doodstream';
-          }
-
-          try {
-            results.push({
-              url: new URL(streamUrlStr),
-              meta: {
-                countryCodes: [CountryCode.de],
-                referer: pageUrl.href,
-                title: `${hostName} - ${title}`,
-                sourceLabel: this.label,
-              },
-            });
-          } catch {
-            // Ungültige URL überspringen
-          }
+        if (streamUrlStr.startsWith('//')) {
+          streamUrlStr = 'https:' + streamUrlStr;
         }
 
-        // Falls wir Ergebnisse auf dieser Seite gefunden haben, beenden wir die Schleife
-        if (results.length > 0) {
-          break;
+        let hostName = 'Hoster';
+        const lowerUrl = streamUrlStr.toLowerCase();
+        if (lowerUrl.includes('voe') || lowerUrl.includes('jodomi')) {
+          hostName = 'VOE';
+        } else if (lowerUrl.includes('streamtape')) {
+          hostName = 'Streamtape';
+        } else if (lowerUrl.includes('vidoza')) {
+          hostName = 'Vidoza';
+        } else if (lowerUrl.includes('dood')) {
+          hostName = 'Doodstream';
+        } else if (lowerUrl.includes('mixdrop')) {
+          hostName = 'Mixdrop';
         }
-      } catch {
-        // Bei Fehler zur nächsten URL springen
+
+        try {
+          results.push({
+            url: new URL(streamUrlStr),
+            meta: {
+              countryCodes: [CountryCode.de],
+              referer: this.baseUrl,
+              title: `${hostName} - ${title}`,
+              sourceLabel: this.label,
+            },
+          });
+        } catch {
+          // Ungültige URL ignorieren
+        }
       }
+    } catch {
+      // Fehler beim Abruf auffangen
     }
 
     return results;
