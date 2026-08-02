@@ -14,6 +14,7 @@ import { createSources, Source } from './source';
 import { MeineCloud } from './source/MeineCloud';
 import { Moflix } from './source/moflix';
 import { clearCache, contextFromRequestAndResponse, envGet, envIsProd, Fetcher, StreamResolver } from './utils';
+import { KinoKing } from './source/KinoKing';
 
 if (envIsProd()) {
   console.log = console.warn = console.error = console.info = console.debug = () => { /* disable in favor of logger */ };
@@ -125,6 +126,7 @@ addon.get('/live', async (req: Request, res: Response) => {
   const sources: Source[] = [
     new Moflix(fetcher),
     new MeineCloud(fetcher),
+    new KinoKing(fetcher),
   ];
   const hrefs = [
     ...sources.map(source => source.baseUrl),
