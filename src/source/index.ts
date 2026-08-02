@@ -49,7 +49,7 @@ export const createSources = (fetcher: Fetcher): Source[] => {
     new MegaKino(fetcher),
     new MeineCloud(fetcher),
     new FilmpalastTO(fetcher),
-    new Moflix(),
+    new Moflix(fetcher),
     // FR
     new Frembed(fetcher),
     new FrenchCloud(fetcher),
