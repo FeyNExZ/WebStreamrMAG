@@ -2,21 +2,18 @@ import bytes from 'bytes';
 import * as cheerio from 'cheerio';
 import { NotFoundError } from '../error';
 import { Context, Format, InternalUrlResult, Meta } from '../types';
-import {
-  buildMediaFlowProxyExtractorStreamUrl, guessHeightFromPlaylist,
-  supportsMediaFlowProxy,
-} from '../utils';
+import { guessHeightFromPlaylist } from '../utils';
 import { Extractor } from './Extractor';
 
-/** @see https://github.com/Gujal00/ResolveURL/blob/master/script.module.resolveurl/lib/resolveurl/plugins/voesx.py */
 export class Voe extends Extractor {
   public readonly id = 'voe';
-
   public readonly label = 'VOE';
 
-  public override viaMediaFlowProxy = true;
+  // 🔥 Proxy-Zwang entfernt, damit es auch auf Render nativ läuft
+  public override viaMediaFlowProxy = false;
 
-  public supports(ctx: Context, url: URL): boolean {
+  public supports(_ctx: Context, url: URL): boolean {
+    // 💡 Prüft nur noch die Domain, ohne nach dem fehlenden Proxy zu fragen
     const supportedDomain = null !== url.host.match(/voe/)
       || [
         '19turanosephantasia.com',
@@ -120,7 +117,7 @@ export class Voe extends Extractor {
         'yodelswartlike.com',
       ].includes(url.host);
 
-    return supportedDomain && supportsMediaFlowProxy(ctx);
+    return supportedDomain;
   }
 
   public override normalize(url: URL): URL {
@@ -134,12 +131,9 @@ export class Voe extends Extractor {
     try {
       html = await this.fetcher.text(ctx, url, { headers });
     } catch (error) {
-      /* istanbul ignore next */
       if (error instanceof NotFoundError && !url.href.includes('/e/')) {
         return await this.extractInternal(ctx, new URL(`/e${url.pathname}`, url.origin), meta);
       }
-
-      /* istanbul ignore next */
       throw error;
     }
 
@@ -158,7 +152,13 @@ export class Voe extends Extractor {
     const sizeMatch = html.matchAll(/[\d.]+ ?[GM]B/g).toArray().at(-1);
     const size = sizeMatch ? bytes.parse(sizeMatch[0] as string) as number : null;
 
-    const playlistUrl = await buildMediaFlowProxyExtractorStreamUrl(ctx, this.fetcher, 'Voe', url, headers);
+    // 🔥 NEU: Wir greifen den Videostream (HLS) direkt aus dem Seitenquelltext ab!
+    const hlsMatch = html.match(/(https:\/\/[^'"]*\.m3u8[^'"]*)/);
+    if (!hlsMatch || !hlsMatch[1]) {
+      throw new Error('VOE Extractor: HLS Stream-Link konnte nicht gefunden werden.');
+    }
+    
+    const playlistUrl = new URL(hlsMatch[1]);
 
     const heightMatch = html.match(/<b>(\d{3,})p<\/b>/);
     const height = heightMatch
