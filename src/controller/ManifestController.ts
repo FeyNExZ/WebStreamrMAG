@@ -22,6 +22,7 @@ export class ManifestController {
 
   private getManifest(req: Request, res: Response) {
     let config: Config = getDefaultConfig();
+    
     if (req.params['config']) {
       try {
         config = JSON.parse(req.params['config'] as string);
@@ -30,6 +31,9 @@ export class ManifestController {
         return;
       }
     }
+
+    // 🔥 HIER IST DER FIX: Wir zwingen das Addon, deutsche Streams ('de') IMMER durchzulassen!
+    (config as any)['de'] = true;
 
     const manifest = buildManifest(this.sources, this.extractors, config);
 
